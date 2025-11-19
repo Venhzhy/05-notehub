@@ -1,6 +1,7 @@
 import React from "react";
 import { Formik, Form, Field, ErrorMessage, type FormikHelpers } from "formik";
 import * as Yup from "yup";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createNote, type CreateNotePayload } from "../../services/noteService";
 import type { Note } from "../../types/note";
 import css from "./NoteForm.module.css";
@@ -21,10 +22,7 @@ const validationSchema = Yup.object().shape({
     .min(3, "Title must be at least 3 characters")
     .max(50, "Title must be at most 50 characters")
     .required("Title is required"),
-  content: Yup.string().max(
-    500,
-    "Content must be at most 500 characters"
-  ),
+  content: Yup.string().max(500, "Content must be at most 500 characters"),
   tag: Yup.mixed<Note["tag"]>()
     .oneOf(["Todo", "Work", "Personal", "Meeting", "Shopping"])
     .required("Tag is required"),
@@ -37,21 +35,33 @@ const initialValues: NoteFormValues = {
 };
 
 const NoteForm = ({ onSuccess, onCancel }: NoteFormProps) => {
+  const queryClient = useQueryClient();
+
+  const createNoteMutation = useMutation({
+    mutationFn: (payload: CreateNotePayload) => createNote(payload),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["notes"] });
+      onSuccess();
+    },
+    onError: (error) => {
+      console.error(error);
+    },
+  });
+
   const handleSubmit = async (
     values: NoteFormValues,
     actions: FormikHelpers<NoteFormValues>
   ): Promise<void> => {
+    const payload: CreateNotePayload = {
+      title: values.title,
+      content: values.content,
+      tag: values.tag,
+    };
+
     try {
-      const payload: CreateNotePayload = {
-        title: values.title,
-        content: values.content,
-        tag: values.tag,
-      };
-      await createNote(payload);
+      await createNoteMutation.mutateAsync(payload);
       actions.resetForm();
-      onSuccess();
     } catch (err) {
-      console.error(err);
     } finally {
       actions.setSubmitting(false);
     }
@@ -96,21 +106,11 @@ const NoteForm = ({ onSuccess, onCancel }: NoteFormProps) => {
               rows={8}
               className={css.textarea}
             />
-            <ErrorMessage
-              name="content"
-              component="span"
-              className={css.error}
-            />
           </div>
 
           <div className={css.formGroup}>
             <label htmlFor="tag">Tag</label>
-            <Field
-              as="select"
-              id="tag"
-              name="tag"
-              className={css.select}
-            >
+            <Field as="select" id="tag" name="tag" className={css.select}>
               <option value="Todo">Todo</option>
               <option value="Work">Work</option>
               <option value="Personal">Personal</option>
@@ -135,7 +135,7 @@ const NoteForm = ({ onSuccess, onCancel }: NoteFormProps) => {
             <button
               type="submit"
               className={css.submitButton}
-              disabled={isSubmitting}
+              disabled={isSubmitting || createNoteMutation.isPending}
             >
               Create note
             </button>
@@ -147,3 +147,4 @@ const NoteForm = ({ onSuccess, onCancel }: NoteFormProps) => {
 };
 
 export default NoteForm;
+
